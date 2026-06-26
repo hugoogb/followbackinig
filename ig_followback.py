@@ -2,7 +2,7 @@
 """
 Instagram follow-back cleanup (personal, offline).
 
-Reads the JSON files from your Instagram "Download your information" export
+Reads the JSON files from your Instagram "Export your information" export
 (scope: Followers and following, format: JSON) and helps you clean up who you
 follow. It reports:
   - people you follow who DON'T follow you back  (cleanup candidates)

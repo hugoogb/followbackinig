@@ -10,8 +10,8 @@ action list for fast manual unfollowing.
 
 ## Get your data
 
-Instagram → **Settings → Your activity → Download your information** → request
-an export with:
+Instagram → **Accounts Center → Your information and permissions → Export your
+information** → request an export with:
 
 - **Scope:** *Followers and following*
 - **Format:** *JSON*
