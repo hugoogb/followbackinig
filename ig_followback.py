@@ -39,23 +39,56 @@ from pathlib import Path
 # Parsing
 # --------------------------------------------------------------------------- #
 
+def _username_and_timestamp(block) -> tuple[str, int | None]:
+    """Pull (username, timestamp) from one IG relationship block.
+
+    Instagram emits the same data in several shapes across export files:
+      - followers:  string_list_data[].value holds the username
+      - following:  string_list_data[] has only href + timestamp;
+                    the username is the block-level "title"
+      - pending:    no string_list_data at all; label_values holds a
+                    {"label": "Username", "value": ...} pair, and the
+                    timestamp is on the block itself
+    This tries each location so all three parse correctly.
+    """
+    username = ""
+    timestamp = block.get("timestamp")  # block-level (pending requests)
+
+    for item in block.get("string_list_data") or []:
+        value = (item.get("value") or "").strip()
+        if value:
+            username = value
+        if item.get("timestamp"):
+            timestamp = item["timestamp"]
+
+    if not username:
+        for pair in block.get("label_values") or []:
+            if pair.get("label") == "Username":
+                username = (pair.get("value") or "").strip()
+
+    if not username:
+        username = (block.get("title") or "").strip()
+
+    return username, timestamp
+
+
 def _extract_accounts(blocks) -> dict[str, dict]:
     """Pull accounts out of a list of IG relationship blocks.
 
-    Returns a mapping username -> {"href": str, "timestamp": int | None},
-    preserving the per-account data the export carries (unlike a bare set).
+    Returns a mapping username -> {"href": str, "timestamp": int | None}.
+    The profile URL is always built as a clean web link from the username
+    rather than reusing the export's href, which is sometimes a
+    `.../_u/<user>` app-deeplink that doesn't open cleanly in a browser.
     """
     accounts: dict[str, dict] = {}
     for block in blocks:
-        for item in block.get("string_list_data", []):
-            value = (item.get("value") or "").strip()
-            if not value:
-                continue
-            accounts[value] = {
-                "href": (item.get("href") or "").strip()
-                or f"https://instagram.com/{value}",
-                "timestamp": item.get("timestamp"),
-            }
+        username, timestamp = _username_and_timestamp(block)
+        if not username:
+            continue
+        accounts[username] = {
+            "href": f"https://instagram.com/{username}",
+            "timestamp": timestamp,
+        }
     return accounts
 
 

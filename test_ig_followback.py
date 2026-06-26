@@ -148,6 +148,50 @@ class PendingRequestsTests(unittest.TestCase):
             self.assertEqual(ig.load_pending_requests(Path(d)), {})
 
 
+class RealExportShapeTests(unittest.TestCase):
+    """Shapes seen in actual Instagram exports (regression coverage)."""
+
+    def _write(self, folder, name, data):
+        (folder / name).write_text(json.dumps(data), encoding="utf-8")
+
+    def test_following_username_from_block_title_when_value_absent(self):
+        # following.json: username is the block "title"; string_list_data has
+        # only href + timestamp (no "value").
+        accounts = ig._extract_accounts([
+            {"title": "jaywheelerpr",
+             "string_list_data": [
+                 {"href": "https://www.instagram.com/_u/jaywheelerpr",
+                  "timestamp": 1781997016}]},
+        ])
+        self.assertIn("jaywheelerpr", accounts)
+        self.assertEqual(accounts["jaywheelerpr"]["timestamp"], 1781997016)
+
+    def test_builds_clean_web_profile_url_not_deeplink(self):
+        accounts = ig._extract_accounts([
+            {"title": "ghost",
+             "string_list_data": [
+                 {"href": "https://www.instagram.com/_u/ghost", "timestamp": 5}]},
+        ])
+        self.assertEqual(accounts["ghost"]["href"], "https://instagram.com/ghost")
+
+    def test_pending_requests_label_values_shape(self):
+        with tempfile.TemporaryDirectory() as d:
+            folder = Path(d)
+            self._write(folder, "pending_follow_requests.json", {
+                "relationships_follow_requests_sent": [
+                    {"timestamp": 1778601827,
+                     "label_values": [
+                         {"label": "URL", "value": ""},
+                         {"label": "Name", "value": "Marta Murcia"},
+                         {"label": "Username", "value": "marta.murcia"},
+                     ]},
+                ]
+            })
+            pending = ig.load_pending_requests(folder)
+            self.assertIn("marta.murcia", pending)
+            self.assertEqual(pending["marta.murcia"]["timestamp"], 1778601827)
+
+
 class RenderActionListTests(unittest.TestCase):
     def test_includes_title_and_usernames(self):
         records = [ig._to_record("ghosty",
