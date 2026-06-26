@@ -90,6 +90,24 @@ def load_accounts(folder: Path) -> tuple[dict[str, dict], dict[str, dict]]:
     return _load_following(folder), _load_followers(folder)
 
 
+def load_pending_requests(folder: Path) -> dict[str, dict]:
+    """Load follow requests you've SENT that are still pending.
+
+    Reads pending_follow_requests.json (private accounts you asked to follow
+    that haven't accepted yet). This file is optional — accounts with no
+    pending requests won't have it — so a missing file returns {} rather than
+    erroring.
+    """
+    path = folder / "pending_follow_requests.json"
+    if not path.exists():
+        return {}
+    data = json.loads(path.read_text(encoding="utf-8"))
+    # pending_follow_requests.json is a dict keyed by
+    # "relationships_follow_requests_sent"; tolerate a bare list too.
+    blocks = data if isinstance(data, list) else data.get("relationships_follow_requests_sent", [])
+    return _extract_accounts(blocks)
+
+
 # --------------------------------------------------------------------------- #
 # Diffing
 # --------------------------------------------------------------------------- #
@@ -144,7 +162,7 @@ _HTML_TEMPLATE = """<!doctype html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Instagram cleanup — not following you back</title>
+<title>{title}</title>
 <style>
   body {{ font: 16px/1.5 -apple-system, system-ui, sans-serif; margin: 2rem auto; max-width: 640px; color: #222; }}
   h1 {{ font-size: 1.4rem; }}
@@ -160,12 +178,11 @@ _HTML_TEMPLATE = """<!doctype html>
 </style>
 </head>
 <body>
-<h1>Not following you back</h1>
-<p class="meta">{count} accounts you follow who don't follow you back.
-Tick the box once you've unfollowed someone in the app. <span class="hint">(Click a column header to sort.)</span></p>
+<h1>{title}</h1>
+<p class="meta">{intro} <span class="hint">(Click a column header to sort.)</span></p>
 <table id="t">
 <thead>
-<tr><th data-k="done">✓</th><th data-k="username">Username</th><th data-k="followed_on">Followed on</th></tr>
+<tr><th data-k="done">✓</th><th data-k="username">Username</th><th data-k="date">{date_label}</th></tr>
 </thead>
 <tbody>
 {rows}
@@ -173,7 +190,7 @@ Tick the box once you've unfollowed someone in the app. <span class="hint">(Clic
 </table>
 <script>
 const tbody = document.querySelector('#t tbody');
-let asc = true, lastKey = 'followed_on';
+let asc = true, lastKey = 'date';
 tbody.addEventListener('change', e => {{
   if (e.target.type === 'checkbox') e.target.closest('tr').classList.toggle('done', e.target.checked);
 }});
@@ -194,40 +211,74 @@ document.querySelectorAll('#t th').forEach(th => th.addEventListener('click', ()
 """
 
 
-def _render_html(candidates: list[dict]) -> str:
+def _render_action_list(title: str, intro: str, records: list[dict],
+                        date_label: str = "Followed on") -> str:
+    """Render a sortable, checkbox action list for any set of account records."""
     rows = []
-    for acc in candidates:
+    for acc in records:
         user = html.escape(acc["username"])
         url = html.escape(acc["profile_url"], quote=True)
         # 'unknown' sorts after real dates as a data attribute too (~ > digits).
         sort_date = acc["followed_on"] if acc["followed_on"] != "unknown" else "~"
         rows.append(
-            f'<tr data-username="{user}" data-followed_on="{html.escape(sort_date)}" data-done="0">'
+            f'<tr data-username="{user}" data-date="{html.escape(sort_date)}" data-done="0">'
             f'<td><input type="checkbox"></td>'
             f'<td><a href="{url}" target="_blank" rel="noopener">{user}</a></td>'
             f'<td>{html.escape(acc["followed_on"])}</td></tr>'
         )
-    return _HTML_TEMPLATE.format(count=len(candidates), rows="\n".join(rows))
+    return _HTML_TEMPLATE.format(
+        title=html.escape(title), intro=html.escape(intro),
+        date_label=html.escape(date_label), rows="\n".join(rows),
+    )
 
 
-def write_outputs(candidates: list[dict], folder: Path) -> list[Path]:
-    """Write cleanup.html, not_following_back.csv and .txt. Returns paths written."""
-    html_path = folder / "cleanup.html"
-    csv_path = folder / "not_following_back.csv"
-    txt_path = folder / "not_following_back.txt"
+def _write_list(records: list[dict], html_path: Path, csv_path: Path, txt_path: Path,
+                title: str, intro: str, date_label: str) -> list[Path]:
+    """Write an HTML action list plus CSV and TXT for a set of account records."""
+    date_field = date_label.lower().replace(" ", "_")  # "Followed on" -> "followed_on"
 
-    html_path.write_text(_render_html(candidates), encoding="utf-8")
-
+    html_path.write_text(
+        _render_action_list(title, intro, records, date_label), encoding="utf-8"
+    )
     with csv_path.open("w", newline="", encoding="utf-8") as fh:
         writer = csv.writer(fh)
-        writer.writerow(["username", "profile_url", "followed_on"])
-        for acc in candidates:
+        writer.writerow(["username", "profile_url", date_field])
+        for acc in records:
             writer.writerow([acc["username"], acc["profile_url"], acc["followed_on"]])
-
     txt_path.write_text(
-        "\n".join(acc["username"] for acc in candidates), encoding="utf-8"
+        "\n".join(acc["username"] for acc in records), encoding="utf-8"
     )
     return [html_path, csv_path, txt_path]
+
+
+def write_outputs(candidates: list[dict], pending: list[dict], folder: Path) -> list[Path]:
+    """Write the unfollow action list and, if any, the pending-requests list.
+
+    Returns the paths written.
+    """
+    written = _write_list(
+        candidates,
+        folder / "cleanup.html",
+        folder / "not_following_back.csv",
+        folder / "not_following_back.txt",
+        title="Not following you back",
+        intro=f"{len(candidates)} accounts you follow who don't follow you back. "
+              "Tick the box once you've unfollowed someone in the app.",
+        date_label="Followed on",
+    )
+    if pending:
+        written += _write_list(
+            pending,
+            folder / "pending_requests.html",
+            folder / "pending_requests.csv",
+            folder / "pending_requests.txt",
+            title="Pending sent follow requests",
+            intro=f"{len(pending)} follow requests you've sent that haven't been "
+                  "accepted yet. Open a profile to cancel the request if you want; "
+                  "tick the box to mark it handled.",
+            date_label="Requested on",
+        )
+    return written
 
 
 # --------------------------------------------------------------------------- #
@@ -239,20 +290,30 @@ def main() -> None:
     following, followers = load_accounts(folder)
     diff = compute_diff(following, followers)
     candidates = diff.not_following_back
+    pending_accounts = load_pending_requests(folder)
+    pending = _sorted_records(set(pending_accounts), pending_accounts)
 
     print(f"Following:             {len(following)}")
     print(f"Followers:             {len(followers)}")
     print(f"Mutuals:               {diff.mutuals}")
     print(f"Don't follow you back: {len(candidates)}")
     print(f"You don't follow back: {len(diff.fans_you_dont_follow_back)}")
+    print(f"Pending sent requests: {len(pending)}")
     print()
 
     print("=== Not following you back (candidates to unfollow) ===")
     for acc in candidates:
         print(f"  {acc['username']:<30} followed {acc['followed_on']}  {acc['profile_url']}")
 
-    written = write_outputs(candidates, folder)
-    print(f"\nSaved {len(candidates)} candidates. Open the action list:")
+    if pending:
+        print("\n=== Pending follow requests you've sent (awaiting acceptance) ===")
+        for acc in pending:
+            print(f"  {acc['username']:<30} requested {acc['followed_on']}  {acc['profile_url']}")
+
+    written = write_outputs(candidates, pending, folder)
+    print(f"\nSaved {len(candidates)} unfollow candidates"
+          + (f" and {len(pending)} pending requests" if pending else "")
+          + ". Open the action list(s):")
     for path in written:
         print(f"  {path}")
 

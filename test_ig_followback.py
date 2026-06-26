@@ -117,5 +117,46 @@ class LoadAccountsTests(unittest.TestCase):
             self.assertEqual(set(following), {"real"})
 
 
+class PendingRequestsTests(unittest.TestCase):
+    def _write(self, folder, name, data):
+        (folder / name).write_text(json.dumps(data), encoding="utf-8")
+
+    def test_loads_pending_requests_dict_shape(self):
+        with tempfile.TemporaryDirectory() as d:
+            folder = Path(d)
+            self._write(folder, "pending_follow_requests.json", {
+                "relationships_follow_requests_sent": [
+                    _block("private_one", timestamp=100),
+                    _block("private_two", timestamp=200),
+                ]
+            })
+            pending = ig.load_pending_requests(folder)
+            self.assertEqual(set(pending), {"private_one", "private_two"})
+            self.assertEqual(pending["private_two"]["timestamp"], 200)
+
+    def test_loads_pending_requests_list_shape(self):
+        with tempfile.TemporaryDirectory() as d:
+            folder = Path(d)
+            self._write(folder, "pending_follow_requests.json",
+                        [_block("private_one", timestamp=100)])
+            pending = ig.load_pending_requests(folder)
+            self.assertEqual(set(pending), {"private_one"})
+
+    def test_missing_file_returns_empty(self):
+        with tempfile.TemporaryDirectory() as d:
+            # No pending_follow_requests.json present — must not crash.
+            self.assertEqual(ig.load_pending_requests(Path(d)), {})
+
+
+class RenderActionListTests(unittest.TestCase):
+    def test_includes_title_and_usernames(self):
+        records = [ig._to_record("ghosty",
+                   {"href": "https://instagram.com/ghosty", "timestamp": 100})]
+        out = ig._render_action_list("My Title", "some intro", records)
+        self.assertIn("My Title", out)
+        self.assertIn("some intro", out)
+        self.assertIn("ghosty", out)
+
+
 if __name__ == "__main__":
     unittest.main()

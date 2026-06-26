@@ -11,3 +11,6 @@ following.json
 cleanup.html
 not_following_back.csv
 not_following_back.txt
+pending_requests.html
+pending_requests.csv
+pending_requests.txt
