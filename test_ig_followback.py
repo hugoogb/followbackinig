@@ -1,7 +1,11 @@
 #!/usr/bin/env python3
 """Tests for ig_followback (offline Instagram follow-back cleanup util)."""
 
+import contextlib
+import io
 import json
+import os
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -190,6 +194,31 @@ class RealExportShapeTests(unittest.TestCase):
             pending = ig.load_pending_requests(folder)
             self.assertIn("marta.murcia", pending)
             self.assertEqual(pending["marta.murcia"]["timestamp"], 1778601827)
+
+
+class OutputLocationTests(unittest.TestCase):
+    def test_outputs_written_to_cwd_not_input_folder(self):
+        with tempfile.TemporaryDirectory() as src_d, tempfile.TemporaryDirectory() as run_d:
+            src, run = Path(src_d), Path(run_d)
+            (src / "following.json").write_text(
+                json.dumps({"relationships_following": [_block("ghost", timestamp=100)]}),
+                encoding="utf-8")
+            (src / "followers.json").write_text(
+                json.dumps([_block("fan", timestamp=100)]), encoding="utf-8")
+
+            old_argv, old_cwd = sys.argv, os.getcwd()
+            try:
+                os.chdir(run)
+                sys.argv = ["ig_followback.py", str(src)]
+                with contextlib.redirect_stdout(io.StringIO()):
+                    ig.main()
+            finally:
+                sys.argv = old_argv
+                os.chdir(old_cwd)
+
+            self.assertTrue((run / "cleanup.html").exists())
+            self.assertTrue((run / "not_following_back.csv").exists())
+            self.assertFalse((src / "cleanup.html").exists())
 
 
 class RenderActionListTests(unittest.TestCase):

@@ -284,16 +284,18 @@ def _write_list(records: list[dict], html_path: Path, csv_path: Path, txt_path: 
     return [html_path, csv_path, txt_path]
 
 
-def write_outputs(candidates: list[dict], pending: list[dict], folder: Path) -> list[Path]:
+def write_outputs(candidates: list[dict], pending: list[dict], out_dir: Path) -> list[Path]:
     """Write the unfollow action list and, if any, the pending-requests list.
 
+    Files are written into out_dir (the directory the script is run from),
+    not the export folder, so running the tool doesn't litter your export.
     Returns the paths written.
     """
     written = _write_list(
         candidates,
-        folder / "cleanup.html",
-        folder / "not_following_back.csv",
-        folder / "not_following_back.txt",
+        out_dir / "cleanup.html",
+        out_dir / "not_following_back.csv",
+        out_dir / "not_following_back.txt",
         title="Not following you back",
         intro=f"{len(candidates)} accounts you follow who don't follow you back. "
               "Tick the box once you've unfollowed someone in the app.",
@@ -302,9 +304,9 @@ def write_outputs(candidates: list[dict], pending: list[dict], folder: Path) -> 
     if pending:
         written += _write_list(
             pending,
-            folder / "pending_requests.html",
-            folder / "pending_requests.csv",
-            folder / "pending_requests.txt",
+            out_dir / "pending_requests.html",
+            out_dir / "pending_requests.csv",
+            out_dir / "pending_requests.txt",
             title="Pending sent follow requests",
             intro=f"{len(pending)} follow requests you've sent that haven't been "
                   "accepted yet. Open a profile to cancel the request if you want; "
@@ -343,7 +345,7 @@ def main() -> None:
         for acc in pending:
             print(f"  {acc['username']:<30} requested {acc['followed_on']}  {acc['profile_url']}")
 
-    written = write_outputs(candidates, pending, folder)
+    written = write_outputs(candidates, pending, Path.cwd())
     print(f"\nSaved {len(candidates)} unfollow candidates"
           + (f" and {len(pending)} pending requests" if pending else "")
           + ". Open the action list(s):")
