@@ -1,0 +1,13 @@
+# Python
+__pycache__/
+*.pyc
+
+# Instagram export data — keep your personal data OUT of git
+*.json
+followers_*.json
+following.json
+
+# Generated action lists
+cleanup.html
+not_following_back.csv
+not_following_back.txt
